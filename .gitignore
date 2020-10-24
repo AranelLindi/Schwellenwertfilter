@@ -1,0 +1,5 @@
+.*
+!.gitignore
+filter
+*.bmp
+!Erde.bmp
