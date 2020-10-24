@@ -1,28 +1,23 @@
+/*
+BMP Dateien: |BITMAPFILEHEADER| - |BITMAPINFOHEADER| - |PIXEL VALUES|
+             |    14 Bytes    |   |    40 Bytes    |   | ...        |
+*/
+
 /// Standardbibliotheken
-#include <math.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdint.h>
+#include <math.h>   // sqrt()
+#include <stdlib.h> // Speicherallokation
+#include <stdio.h>  // Konsolenausgabe
+#include <stdint.h> // int-Types
 
 /// Makros
-#define imagepath "Erde.bmp"
+#define imagepath "Erde.bmp"            // Bild mit Erde, das bearbeitet werden soll
+#define Schritt1 "Binärisierung.bmp"    // Binärisierung
+#define Schritt2 "Erosion.bmp"          // Erosion
+#define Schritt3 "Subtraktion.bmp"      // Subtraktion
+#define Schritt4 "Kreismittelpunkt.bmp" // Kreismittelpunkt
 
-// #######
-// VARIABLEN
-// #######
-uint8_t header[54];     // 14 Bytes (header) + 40 Bytes (info header) = 54 Bytes
-uint32_t dataPos;       // Position wo in der Datei die Pixeldaten anfangen
-uint32_t width, height; // Breite/Höhe des Bildes (können wohl auch negativ sein, MÖGLICHE FEHLERQUELLE!)
-uint32_t imageSize;     // Größe des Bildes in Byte
-
-uint8_t *data;    // Enthält sämtliche Hex-Werte aller Pixel (darf nach einlesen, nicht bearbeitet werden!)
-uint8_t *errdata; // Enthält die erodierte Menge die mit dem strukturierenden Element abgeblichen wurde
-uint8_t *subdata; // Enthält die subtrahierte Menge, der oben beiden Arrays
-
-// #######
-// STRUKTUREN
-// #######
-typedef struct rgbform
+/// Strukturen
+typedef struct rgbform // Wichtig: Farbdaten werden nicht in RGB Reinfolge sondern in BGR in Bitmap gespeichert !!
 {
     uint8_t r;      // rot-Anteil
     uint8_t g;      // grün-Anteil
@@ -30,11 +25,32 @@ typedef struct rgbform
     char error : 1; // Enthält 0, falls kein Fehler aufgetreten ist, andernfalls 1 (Bitfeld!)
 } RGBform, erosion;
 
-struct rgbform strElement[3][3] = {0, 0, 0}; // 3x3 großes Element, dass als sturkturierendes Element dient
+struct point // Stellt eine Koordinate innerhalb des Bildes dar
+{
+    uint64_t x;
+    uint64_t y;
+};
 
-// ********************************************************************
-// // Gibt die Farbwerte in Bezug auf eine Koordinate des Bildes zurück
-struct rgbform getRGBbyCoordinate(uint64_t x, uint64_t y, uint8_t *data_array)
+/// Globale Variablen
+uint8_t header[54] = {0};       // 14 Bytes (header) + 40 Bytes (info header) = 54 Bytes
+uint32_t dataPos = 0;           // Position wo in der Datei die Pixeldaten anfangen
+uint64_t width = 0, height = 0; // Breite/Höhe des Bildes (können wohl auch negativ sein, MÖGLICHE FEHLERQUELLE!) (hat sich bisher aber nicht bewahrheitet)
+uint64_t imageSize = 0;         // Größe des Bildes in Byte
+
+uint8_t *data;    // Enthält sämtliche Hex-Werte aller Pixel (darf nach einlesen, nicht bearbeitet werden!)
+uint8_t *errdata; // Enthält die erodierte Menge die mit dem strukturierenden Element abgeblichen wurde
+//uint8_t *subdata; // Enthält die subtrahierte Menge, der oben beiden Arrays
+
+const struct rgbform strElement[3][3] = {0, 0, 0}; // 3x3 großes Element, dass als strukturierendes Element dient (siehe Funktion '') (schwarzes Rechteck)
+
+const double d = 0.001808905; // Durchmesser Sensor: 1.8089 mm
+const double f = 0.005110703; // Brennweite: 5.110703 mm
+const double r_E = 6.371e3;   // Erdradius in km
+// Formeln: D/L = d/f => f = d*L/(2*r_E)
+
+
+/// Funktionen
+struct rgbform getRGBbyCoordinate(uint64_t x, uint64_t y, const uint8_t *data_array) // Gibt die Farbwerte in Bezug auf eine Koordinate des Bildes zurück
 {
     // Koordinatensystem beginnt links oben, Richtung: rechts unten
     RGBform rgb;
@@ -53,19 +69,16 @@ struct rgbform getRGBbyCoordinate(uint64_t x, uint64_t y, uint8_t *data_array)
     // * 3 : Ein Pixel, drei Farbwerte (RGB)
     uint32_t pixel = (x + (y * width)) * 3; // x-Koordinate einfach addieren, Zeilensprünge (y-Koordianten) mit Anzahl Pixel pro "Zeile" multiplizieren. Ergebnis *3 (rgb)
 
-    // Hex-Werte von rgb zuweisen (insgesamt drei Array-Felder)
-    rgb.r = data_array[pixel];
+    // Hex-Werte von rgb zuweisen (insgesamt drei Array-Felder) (Achtung! Reinfolge ist umgekehrt: RGB -> BGR !)
+    rgb.r = data_array[pixel + 2];
     rgb.g = data_array[pixel + 1];
-    rgb.b = data_array[pixel + 2];
+    rgb.b = data_array[pixel];
     rgb.error = 0;
 
     return rgb;
 }
-// ********************************************************************
 
-// ********************************************************************
-// Setzt die Farbwerte einer Koordinate auf die übergeben Farbwerte
-void setRGBbyCoordinate(uint32_t x, uint32_t y, struct rgbform *rgb, uint8_t *data_array)
+void setRGBbyCoordinate(uint64_t x, uint64_t y, struct rgbform *rgb, uint8_t *data_array) // Setzt die Farbwerte einer Koordinate auf die übergeben Farbwerte
 {
     // Bei einem Fehler wird im RGB Element der Error-Member auf 1 gesetzt!
     if ((x > width) || (y > height)) // prüfen ob übergebene Koordiaten im Rahmen liegen
@@ -74,19 +87,17 @@ void setRGBbyCoordinate(uint32_t x, uint32_t y, struct rgbform *rgb, uint8_t *da
         return;
     }
 
-    uint32_t pixel = ((x) + ((y)*width)) * 3;
+    const uint64_t pixel = ((x) + ((y)*width)) * 3;
 
-    data_array[pixel] = (*rgb).r;
+    // Achtung! Reinfolge in Bitmap ist nicht RGB sondern BGR !!
+    data_array[pixel + 2] = (*rgb).r;
     data_array[pixel + 1] = (*rgb).g;
-    data_array[pixel + 2] = (*rgb).b;
+    data_array[pixel] = (*rgb).b;
 }
-// ********************************************************************
 
-// ********************************************************************
-// Erstellt ein neues Bitmap-File mit Header des Ausgangsbitmaps und mit Farbwerten in 'data'
-void CreateBitmap(uint8_t *arr, const char *name) // arr enthält die Pixelwerte; Header ist immer der Gleiche!
+void BitmapErstellen(uint8_t *arr, const char *name) // Erstellt ein neues Bitmap-File mit Header des Ausgangsbitmaps und mit Farbwerten in 'data'
 {
-
+    // arr enthält die Pixelwerte; Header ist immer der Gleiche!
     // ## !Hier wird davon ausgegangen, dass sämtliche Farbwerte der Pixel bereits in das Array data_plus geschrieben wurden! ##
 
     // 2. Sämtliche Array-felder aus data_plus in Hexa-dezimalform in die Datei schreiben
@@ -98,32 +109,20 @@ void CreateBitmap(uint8_t *arr, const char *name) // arr enthält die Pixelwerte
 
     fclose(file);
 
-    printf("\nBitmap erstellt!\n");
+    printf("\nBitmap erstellt! - Name: %s\n", name);
 }
-// ********************************************************************
 
-// ********************************************************************
-// Prüft für die angegebene Koordinate, ob die Menge erosiert werden muss
-int menge(uint32_t x, uint32_t y, struct rgbform *bezugspunkt, uint8_t *data_array)
+uint8_t mengeErosieren(uint32_t x, uint32_t y, const struct rgbform *bezugspunkt, const uint8_t *data_array) // Prüft für die angegebene Koordinate, ob die Menge erosiert werden muss
 {
+    const uint8_t rows = 3, columns = 3;                 // Zeile & Spalten
+    const uint64_t bezugspunkt_x = 2, bezugspunkt_y = 2; // Position des Bezugspunktes im strukturierenden Element (relativ zum Array)
 
-    int rows, columns;
-    rows = 3;                         // Spalten
-    columns = 3;                      // Zeilen
-    int bezugspunkt_x, bezugspunkt_y; // Position des Bezugspunktes im strukturierenden Element (relativ zum Array)
-    bezugspunkt_x = 2;
-    bezugspunkt_y = 2;
-
-    uint32_t p_arr[rows][columns]; // Array mit größe stukturierendes Element, dass speichert, welcher Pixel geprüft werden soll (falls Element teilweise aus Bild ragt)
+    uint32_t p_arr[rows][columns]; // Array mit Größe stukturierendes Element, das speichert, welcher Pixel geprüft werden soll (falls Element teilweise aus Bild ragt)
 
     // Initialisierung des Arrays mit Standartwert 1
-    for (int i = 0; i < rows; i++)
-    {
-        for (int j = 0; j < columns; j++)
-        {
+    for (uint64_t i = 0; i < rows; i++)
+        for (uint64_t j = 0; j < columns; j++)
             p_arr[i][j] = 1;
-        }
-    }
 
     if (bezugspunkt->error == 1)
         return 0; // Liegt der Bezugspunkt außerhalb der Bildkoordinaten, abbrechen
@@ -157,59 +156,45 @@ int menge(uint32_t x, uint32_t y, struct rgbform *bezugspunkt, uint8_t *data_arr
 
     struct rgbform vergleich;
 
-    for (int i = 0; i < rows; i++)
-    {
-        for (int j = 0; j < columns; j++)
-        {
+    for (uint8_t i = 0; i < rows; i++)
+        for (uint8_t j = 0; j < columns; j++)
             if ((p_arr[i][j] == 1) && ((i != (bezugspunkt_x - 1)) & (j != (bezugspunkt_y - 1)))) // Nur vergleichen was im Bild liegt und NICHT der Bezugspunkt ist
             {
                 // Aktuellen Vergleichspunkt abrufen
                 vergleich = getRGBbyCoordinate(x - (rows - bezugspunkt_x - i), y - (columns - bezugspunkt_y - j), data_array);
 
                 if (vergleich.error == 1)
-                    return 0; // Bei Fehler abbrechen (Punkt liegt nicht im Bild, etc...)
+                    return 1; // Bei Fehler abbrechen (Punkt liegt nicht im Bild, etc...)
                 if ((vergleich.r != bezugspunkt->r) && (vergleich.g != bezugspunkt->g) && (vergleich.b != bezugspunkt->b))
-                    return 0; // && sorgt dafür, dass bei einer nicht erfüllten Bedingung, die ganze Schleife mit return 0 beendet wird.
+                    return 1; // && sorgt dafür, dass bei einer nicht erfüllten Bedingung, die ganze Schleife mit return 0 beendet wird.
             }
-        }
-    }
 
-    // Wurde vorher nicht abgebrochen, kann an dieser Stelle davon ausgegangen werden, dass alle Punkte in der Menge liegen
-    return 1;
+    // Wurde vorher nicht abgebrochen, kann an dieser Stelle davon ausgegangen werden, dass alle Punkte in der Menge liegen!
+    return 0;
 }
-// ********************************************************************
 
-// ********************************************************************
-// Erosion: Prüft für übergebene Koordinate ob strukturierendes Element
-// vollständig in der Menge liegt (1) oder nicht (0)
-void Erosion(uint8_t *data, uint8_t *errosed)
+void Erosion(const uint8_t *data, uint8_t *errosed) // Erosion: Prüft für übergebene Koordinate ob strukturierendes Element vollständig in der Menge liegt (0) oder nicht (1)
 {
     // Iteriert durch gesammtes Bild
     for (uint64_t x = 0; x < width; x++)
-    {
-        for (int y = 0; y < height; y++)
+        for (uint64_t y = 0; y < height; y++)
         {
             // Bezugspunkt abrufen
             erosion bezugspunkt = getRGBbyCoordinate(x, y, data);
 
             // Prüfung:
             // Liegt strukturierendes Element um Bezugspunkt in der Menge, den Bezugspunkt in neues Bild aufnehmen
-            if (menge(x, y, &bezugspunkt, data))
+            if (!mengeErosieren(x, y, &bezugspunkt, data))
                 setRGBbyCoordinate(x, y, &bezugspunkt, errosed);
         }
-    }
 
-    // Bitmap ausgeben
-    CreateBitmap(errosed, "aufg2.bmp");
+    // Bitmap ausgeben:
+    BitmapErstellen(errosed, Schritt2);
 }
-// *********************************************************************
 
-// *********************************************************************
-// Subtrahierung: Binärisiertes Bild und erosiertes Bild werden voneinander
-// abzgezogen um Kreisumfang der Erde zu erhalten
-void Subtrahieren(uint8_t *pic1, uint8_t *pic2, uint8_t *data_array)
+void Subtrahieren(const uint8_t *pic1, const uint8_t *pic2, uint8_t *data_array) // Subtrahierung: Binärisiertes Bild und erosiertes Bild werden voneinander abzgezogen um Kreisumfang der Erde zu erhalten
 {
-    uint64_t calc;
+    uint8_t calc;
     for (uint64_t i = 0; i < imageSize; i++)
     {
         calc = pic1[i] - pic2[i];
@@ -225,66 +210,46 @@ void Subtrahieren(uint8_t *pic1, uint8_t *pic2, uint8_t *data_array)
             break;
         }
 
-        // Subtraktion in neues Bild aufnehmen
-        data_array[i] = abs(calc);
+        data_array[i] = abs(calc); // Subtraktion in neues Bild aufnehmen
     }
 
-    // Bitmap ausgeben
-    CreateBitmap(data_array, "aufg3.bmp");
+    // Bitmap ausgeben:
+    BitmapErstellen(data_array, Schritt3);
 }
 
-uint32_t structVergleich(const struct rgbform *a, const struct rgbform *b)
+void RechteckZeichnen(uint64_t x, uint64_t y, uint8_t *data) // Zeichnet ein rotes Rechteck an den mitgeteilten Punkt
 {
-    if (a->r == b->r && a->g == b->g && a->b == b->b)
-        return 1; // true
-    else
-        return 0; // false
+    for (int i = -4; i < 5; i++)
+        for (int j = -4; j < 5; j++)
+            setRGBbyCoordinate(x + i, y + j, &(struct rgbform){.r = 255, .g = 0, .b = 0}, data);
 }
 
-struct point
+void NormiertenErdvektorBerechnen(double x, double y, double z) // Berechnet den Erdvektor, der von Bildmitte zur Erdmitte (Kreismitte) zeigt
 {
-    uint64_t x;
-    uint64_t y;
-};
+    const double x0 = width / 2;
+    const double y0 = height / 2;
 
-void DrawDot(const uint64_t x, const uint64_t y, uint8_t *data) // Zeichnet einen roten Punkt an den Kreismittelpunkt und gibt das Bild als bmp aus.
-{
-    /*for(int i = -4; i != 4; i++) {
-        setRGBbyCoordinate(x + i, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-        setRGBbyCoordinate(x, y+i, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    }*/
+    double vektor[3] = {x - x0, y - y0, z - 0};
 
-    for(int i = -4; i < 5; i++)
-        for(int j = -4; j < 5; j++)
-            setRGBbyCoordinate(x + i, y + j, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
+    const double betrag = sqrt(vektor[0] * vektor[0] + vektor[1] * vektor[1] + vektor[2] * vektor[2]);
 
+    // Vektor normieren: mit 1/betrag multiplizieren bzw. durch betrag teilen:
+    if (betrag == 0)
+    {
+        printf("Division durch Null entdeckt! Kein Erdvektor vorhanden!");
+        return;
+    }
 
-    /*setRGBbyCoordinate(x - 2, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x - 1, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x + 1, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x + 2, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
+    vektor[0] /= betrag;
+    vektor[1] /= betrag;
+    vektor[2] /= betrag;
 
-    setRGBbyCoordinate(x, y - 2, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x, y - 1, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x, y, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x, y + 1, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x, y + 2, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-
-    setRGBbyCoordinate(x - 1, y - 1, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x - 1, y + 1, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-
-    setRGBbyCoordinate(x + 1, y - 1, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);
-    setRGBbyCoordinate(x + 1, y + 1, &(struct rgbform){.r = 0, .g = 0, .b = 255}, data);*/
-
-    CreateBitmap(data, "aufg4.bmp");
+    // Vektor ausgeben:
+    printf("\nNormierter Erdvektor bei:\n\t[ x = %f8 ]\n\t[ y = %f8 ]\n\t[ z = %f8 ]\n", vektor[0], vektor[1], vektor[2]);
 }
 
-// **********************************************************************
-// Kreismitte mit der Methode der kleinsten Quadrate bestimmen
-void Kreismitte(uint8_t *data_array)
+void Kreismitte(uint8_t *data_array) // Kreismitte mit der Methode der kleinsten Quadrate bestimmen
 {
-
     struct rgbform Koordinate;   // Schablone zum Farbvergleich einer Koordinate
     const uint8_t ANZAHL = 7;    // Anzahl zu speichernder Koordinaten für Methode kleinster Quadrate
     uint32_t counter = 0;        // Counter für Anzahl aufgenommener Koordinatentupel
@@ -295,9 +260,9 @@ void Kreismitte(uint8_t *data_array)
         points[i] = (struct point){.x = 0, .y = 0};
 
     // Exemplarisch 7 Koordinaten aus Kreis aufnehmen und daraus den Mittelpunkt berechnen
-    for (uint64_t i = 1; i < width; i+= 10)
+    for (uint64_t i = 1; i < width; i += 10)
     {
-        for (uint64_t j = 1; j < height; j+= 10)
+        for (uint64_t j = 1; j < height; j += 10)
         {
             Koordinate = getRGBbyCoordinate(i, j, data_array);
 
@@ -307,11 +272,12 @@ void Kreismitte(uint8_t *data_array)
                 points[counter].y = j;
 
                 counter++;
-                //break;
-            }            
+            }
+            else if (counter == 7)
+                break;
         }
-        //if (counter == 7)
-        //    break;
+        if (counter == 7)
+            break;
     }
 
     if (counter < 7)
@@ -320,22 +286,30 @@ void Kreismitte(uint8_t *data_array)
         return;
     }
 
-    //printf("debug!\n");
-
-    // Aus allen Koordinaten 7 rausnehmen, die gleichmäßig über den Umfang verteilt sind:
+    /* ENTKOMMENTIEREN FALLS KOORDINATENTUPELN FÜR GAUSS-NEWTON-VERFAHREN AUSGEGEBEN WERDEN SOLLEN
+    // Aus allen Koordinaten 7 rausnehmen, die über den Umfang verteilt sind:
     for (uint8_t i = 0; i < ANZAHL; i++)
         printf("%u : (%lu, %lu)\n", i, points[i].x, points[i].y);
+    */
 
-    uint64_t m1, m2;
+    // Bestimmung des Kreismittelpunkts der Erde mit der Methode der kleinsten Quadrate (Gauss-Newton-Verfahren)
+    // *********************************************************************************************************
+    // Dazu wird über Punkte auf der Kreisbahn mittels eines iterativen Verfahrens ein Kreis
+    // angenähert und die versucht, die Abstände der Punkte zur Kreisbahn zu minimieren.
+    // Die Kreisgleichung
+    //   f(x) :=   r^2 = (x - m_1)^2 + (y - m_2)^2
+    // soll damit gelöst werden, bei der m_1 und m_2 die Koordinaten des Kreismittelpunkts
+    // darstellen.
+    uint64_t m1, m2; // Koordinaten des Kreismittelpunkts
 
     const double tolerance = 1e-6;
 
-    double a, b, r;
+    double a, b, r; // Variablen für Gauss-Newton-Verfahren (a = m_1, b = m_2, r = r)
 
     // Durchschnitt der Koordinatentupel berechnen
-    int i, j;
-    double xAvr = 0.0;
-    double yAvr = 0.0;
+    uint64_t i, j;
+    double xAvr = 0.0; // arithmetisches Mittel der Koordinatentupel zum Abstand auf die Abszisse
+    double yAvr = 0.0; // arithmetisches Mittel der Koordinatentupel zum Abstand auf die Ordinate
 
     for (i = 0; i < ANZAHL; i++)
     {
@@ -343,68 +317,85 @@ void Kreismitte(uint8_t *data_array)
         yAvr += points[i].y;
     }
 
+    // siehe Def.
     xAvr /= ANZAHL;
     yAvr /= ANZAHL;
 
-    // Startwerte festlegen
+    // Startwerte für Iteration festlegen
     a = xAvr;
     b = yAvr;
 
-    for (j = 0; j < 255; j++) // Max. Iterations
+    // Zur Lösung des Verfahrens, wird die Jacobi Matrix gebildet, welche aus den partiellen Ableitungen
+    // der Kreisgleichung bestehen. Diese muss zur Lösung des überbestimmten Gleichungssystems 0 werden.
+    // Sei f(x)_i die Kreisgleichung nach dem Koordinatentupel i und x_1 = m_1 sowie x_3 = c
+    // Aufbau Jacobi Matrix:
+    // [df(x)_1/dx_1, ..., df(x)_1/dx_3]
+    // [   .        , ...,      .      ]
+    // [   .        , ...,      .      ]
+    // [df(x)_n/dx_1, ..., df(x)_n/dx_3]
+    // Quelle: http://people.inf.ethz.ch/arbenz/MatlabKurs/node79.html
+
+    for (j = 0; j < 255; j++) // Anzahl Iterationen (255); je mehr desto besser. Ab einer bestimmten Größe erfolgt jedoch nur sehr geringe Anpassung
     {
-        // Updaten
+        // Neuen Wert für Iteration bestimmten (Zähler im Bruch; Jacobi Matrix):
         double a0 = a;
         double b0 = b;
 
-        // Durchschnitt Berechnen
+        // Arithmetisches Mittel der Distanz, die minimiert werden soll um Kreis anzunähern:
         double LAvr = 0.0;
-        double LaAvr = 0.0;
-        double LbAvr = 0.0;
+        double LaAvr = 0.0; // Distanz von a
+        double LbAvr = 0.0; // Distanz von b
 
         for (i = 0; i < ANZAHL; i++)
         {
-            double dx = points[i].x - a;
-            double dy = points[i].y - b;
-            double L = sqrt(dx * dx + dy * dy);
+            const double dx = points[i].x - a;
+            const double dy = points[i].y - b;
+            const double L = sqrt(dx * dx + dy * dy);
 
-            if (fabs(L) > tolerance)
+            if (fabs(L) > tolerance) // prüfen ob Länge ausreichend minimiert wurde
             {
                 LAvr += L;
                 LaAvr -= dx / L;
                 LbAvr -= dy / L;
             }
         }
+        // siehe Def.
         LAvr /= ANZAHL;
         LaAvr /= ANZAHL;
         LbAvr /= ANZAHL;
 
+        // Aktuelle Position des "Kreismittelpunkts" und Radius updaten, für nächste Iteration:
         a = xAvr + LAvr * LaAvr;
         b = yAvr + LAvr * LbAvr;
         r = LAvr;
 
+        // Ist Differenz von m_1/m_2 und neuem Koordinatentupel ausreichend klein, kann davon
+        // ausgegangen werden, dass Kreis sehr genau auf Punkten liegt, und damit auch Kreis-
+        // mittelpunkt bzw. Radius ausreichend genau bestimmt wurden:
         if (fabs(a - a0) <= tolerance && fabs(b - b0) <= tolerance)
             break;
     }
 
+    // Berechnete Werte an Variablen der Kreisgleichung übergeben:
     m1 = a;
     m2 = b;
 
-    DrawDot(m1, m2, data_array);
+    // Kreismittelpunkt markieren:
+    RechteckZeichnen(m1, m2, data_array);
 
-    printf("m1 = %lu, m2 = %lu, r = %f\n", m1, m2, r);
+    // Bitmap zeichnen:
+    BitmapErstellen(data_array, Schritt4);
+
+    // Koordinaten Kreismittelpunkt inkl. Radius auf Konsole ausgeben:
+    printf("\nKreismitte bei:\n\t[ x = %lu ]\n\t[ y = %lu ]\n\t[ r = %f ]\n", m1, m2, r);
+
+    // Erdvektor berechnen und ausgeben:
+    NormiertenErdvektorBerechnen(m1, m2, f * 2 * r_E / d);
 }
 
-/*
-BMP Dateien: |BITMAPFILEHEADER| - |BITMAPINFOHEADER| - |PIXEL VALUES|
-             |    14 Bytes    |   |    40 Bytes    |   | ...        |
-*/
-
-// ********************************************************************
-// ## MAIN ##
 int main(void)
 {
-    // ****
-    // ERDE.BMP ÖFFNEN
+    // ERDE.BMP ÖFFNEN:
     FILE *file = fopen(imagepath, "rb");
 
     if (!file) // FEHLER: Datei konnte nicht geöffnet werden
@@ -412,25 +403,21 @@ int main(void)
         printf("-- BMP konnte nicht geladen werden! -- \n");
         return 0;
     }
-    // ****
 
-    // ****
-    // HIER: Datei wurde erfolgreich gelesen; ALS NÄCHSTES: Header einlesen
+    // HIER: Datei wurde erfolgreich gelesen; ALS NÄCHSTES: Header einlesen:
     if (fread(header, 1, 54, file) != 54) // FEHLER: wenn weniger als 54 Bytes gelesen werden können (kein vollständiger Header, leere Datei), abbrechen
     {
         printf("-- Keine korrekte BMP Datei! (1) -- \n");
         return 0;
     }
 
-    if (header[0] != 'B' || header[1] != 'M') // Jedes Bitmap-file beginnt mit "BM", dies prüfen!
+    if ((header[0] != 'B') || (header[1] != 'M')) // Jedes Bitmap-file beginnt mit "BM", dies prüfen! (Magische Zahl)
     {
         printf("-- Keine korrekte BMP Datei! (2) -- \n");
         return 0;
     }
-    // ****
 
-    // ****
-    // VERSCHIEDENE WERTE AUS HEADER EINLESEN
+    // VERSCHIEDENE WERTE AUS HEADER EINLESEN:
     dataPos = *(int *)&(header[0x0A]);   // 10 : 4 Bytes : Position in der Datei, ab der die Pixeldaten anfangen
     imageSize = *(int *)&(header[0x22]); // 34 : 4 Bytes : Größte der Bilddaten in Byte
     width = *(int *)&(header[0x12]);     // 18 : 4 Bytes : Breite des Bildes in Pixel
@@ -440,37 +427,29 @@ int main(void)
     if (imageSize == 0)
         imageSize = width * height * 3; // RBG besitzt drei Hexadezimalwerte für den rot-grün-blau-Anteil, deshalb *3!
     if (dataPos == 0)
-        dataPos = 54; // Standartmäßig ist ein BMP Header 54 Bytes lang (BITMAPFILEHEADER & BITMAPINFOHEADER)
-    // ****
+        dataPos = 54; // Standardmäßig ist ein BMP Header 54 Bytes lang (BITMAPFILEHEADER & BITMAPINFOHEADER)
 
-    // ****
-    // SPEICHERPLATZ RESERVIEREN
+    // SPEICHERPLATZ RESERVIEREN:
     data = (uint8_t *)malloc(imageSize * sizeof(uint8_t));    // Original-Farbwerte
     errdata = (uint8_t *)malloc(imageSize * sizeof(uint8_t)); // erodierte Menge
-    subdata = (uint8_t *)malloc(imageSize * sizeof(uint8_t)); // subtrahierte Menge
-    // ****
+    //subdata = (uint8_t *)malloc(imageSize * sizeof(uint8_t)); // subtrahierte Menge
 
-    // ****
-    // RGB-PIXEL-DATEN AUS BITMAP LESEN & FILE SCHLIEßEN
-    fread(data, 1, imageSize, file); // !!WICHTIG!!: fread(...) bewegt den File-Pointer! (quasi Cursor) Deswegen wird hier (durch die 1) nicht von Dateianfang, sondern ab Byte 55 gelesen! Enthält rein die Pixelwerte!!
+    // RGB-PIXEL-DATEN AUS BITMAP LESEN & FILE SCHLIEßEN:
+    fread(data, 1, imageSize, file); // !!WICHTIG!!: fread(...) bewegt den File-Pointer! (quasi Cursor) Deswegen wird hier (durch die 1) nicht von Dateianfang, sondern ab Byte 55 gelesen! (Cursor wurde vorher schon verschoben!) Enthält rein die Pixelwerte!!
     fclose(file);
-    // ****
 
-    /*
-    Diese beiden For-Schleifen iterieren Spalte für Spalte durch die Pixel des Bitmap
-    */
-    RGBform pixel;                    // Struct speichert jeweils Farbwerte
-    for (int x = 0; x < (width); x++) // iteriert Zeilenweise
-    {
-        for (int y = 0; y < (height); y++) // iteriert Spaltenweise
+    // Diese beiden For-Schleifen iterieren Spalte für Spalte durch die Pixel des Bitmap:
+    RGBform pixel;                            // Struct speichert jeweils Farbwerte
+    for (uint64_t x = 0; x < width; x++)      // iteriert Zeilenweise
+        for (uint64_t y = 0; y < height; y++) // iteriert Spaltenweise
         {
             // Farbwerte des aktuellen Pixels abrufen um Vergleiche durchzuführen
             pixel = getRGBbyCoordinate(x, y, data);
 
-            if (pixel.error == 1) // Wurde ein Fehler ausgelöst, hier abbrechen
+            if (pixel.error == (uint8_t)(1)) // Wurde ein Fehler ausgelöst, hier abbrechen
             {
-                printf("\n-- Koordinatenfehler! (%i, %i) --\n", x, y);
-                return 0;
+                printf("\n-- Koordinatenfehler! (%li, %li) --\n", x, y);
+                return 1;
             }
 
             // Hier ist Platz um aktuelle Koordinate bzw. Pixel zu untersuchen (Filter!)
@@ -478,52 +457,40 @@ int main(void)
 
             if (((pixel.r == 0x00) && (pixel.g == 0x00) && (pixel.b == 0x00)))
             {
-                pixel.r = 255;
-                pixel.g = 255;
-                pixel.b = 255;
+                pixel.r = (uint8_t)(0);
+                pixel.g = (uint8_t)(0);
+                pixel.b = (uint8_t)(0);
 
                 setRGBbyCoordinate(x, y, &pixel, data); // struct wird "by-Reference" übergeben, das spart Speicherplatz und Rechenleistung!
             }
             else
             {
-                pixel.r = 0x00;
-                pixel.g = 0x00;
-                pixel.b = 0x00;
+                pixel.r = (uint8_t)(255);
+                pixel.g = (uint8_t)(255);
+                pixel.b = (uint8_t)(255);
 
                 setRGBbyCoordinate(x, y, &pixel, data);
             }
         }
-    }
 
-    // ****
-    // ZWISCHENERGEBNIS: binärisiertes Bitmap
-    CreateBitmap(data, "aufg1.bmp");
-    // ****
+    // ZWISCHENERGEBNIS: binärisiertes Bitmap:
+    BitmapErstellen(data, Schritt1);
 
-    // ****
-    // ZWISCHENERGEBNIS: Erosierung
+    // ZWISCHENERGEBNIS: Erosierung:
     Erosion(data, errdata);
-    // ****
 
-    // ****
-    // ZWISCHENERGEBNIS: Subtrahierung
+    // ZWISCHENERGEBNIS: Subtrahierung:
     Subtrahieren(data, errdata, data);
-    // ****
-    CreateBitmap(data, "test.bmp");
-    // ****
-    // ZWISCHENERGEBNIS: Kreismitte
+    
+    // ZWISCHENERGEBNIS: Kreismitte:
     Kreismitte(data);
 
-    // ****
-    // BEREINIGUNG & SPEICHER FREIGEBEN
-    // Speicher freigeben
+    // BEREINIGUNG & SPEICHER FREIGEBEN:
     free(data);
     free(errdata);
-    free(subdata);
-    // ****
+    //free(subdata);
 
     return 0;
 }
-// ********************************************************************
 
-// Build: gcc main.cc -lm
+// Buildbefehl: gcc main.cc -lm
