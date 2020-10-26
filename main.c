@@ -37,15 +37,12 @@ uint32_t dataPos = 0;           // Position wo in der Datei die Pixeldaten anfan
 uint64_t width = 0, height = 0; // Breite/Höhe des Bildes (können wohl auch negativ sein, MÖGLICHE FEHLERQUELLE!) (hat sich bisher aber nicht bewahrheitet)
 uint64_t imageSize = 0;         // Größe des Bildes in Byte
 
-uint8_t *data;    // Enthält sämtliche Hex-Werte aller Pixel (darf nach einlesen, nicht bearbeitet werden!)
-uint8_t *errdata; // Enthält die erodierte Menge die mit dem strukturierenden Element abgeblichen wurde
-
 //const RGBform strElement[3][3] = {0, 0, 0}; // 3x3 großes Element, dass als strukturierendes Element dient (siehe Funktion '') (schwarzes Rechteck)
 
 const float d = 0.001808905f; // Durchmesser Sensor: 1.8089 mm
 const float f = 0.005110703f; // Brennweite: 5.110703 mm
 const float r_E = 6.371e3f;   // Erdradius in km
-// Formeln: D/L = d/f => f = d*L/(2*r_E)
+// Formeln: D/L = d/f => f = d*L/(2*r_E) (siehe Vorlesungsfolie)
 
 /// Funktionen
 RGBform getRGBbyCoordinate(uint64_t x, uint64_t y, const uint8_t *const data_array) // Gibt die Farbwerte in Bezug auf eine Koordinate des Bildes zurück
@@ -111,12 +108,53 @@ void BitmapErstellen(const uint8_t *const arr, const char *const name) // Erstel
     printf("\nBitmap erstellt! - Name: %s\n", name);
 }
 
-uint8_t mengeErosieren(uint32_t x, uint32_t y, const RGBform *const bezugspunkt, const uint8_t *const data_array) // Prüft für die angegebene Koordinate, ob die Menge erosiert werden muss
+void Bin(uint8_t *const data) // binärisiert das eindimensionale mit data-Array übergebene RGB-basierte Bild per Referenz
+{
+    // Diese beiden For-Schleifen iterieren Spalte für Spalte durch die Pixel des Bitmap:
+    RGBform pixel;                            // Struct speichert jeweils Farbwerte
+    for (uint64_t x = 0; x < width; x++)      // iteriert Zeilenweise
+        for (uint64_t y = 0; y < height; y++) // iteriert Spaltenweise
+        {
+            // Farbwerte des aktuellen Pixels abrufen um Vergleiche durchzuführen
+            pixel = getRGBbyCoordinate(x, y, data);
+
+            if (pixel.error == 1) // Wurde ein Fehler ausgelöst, hier abbrechen
+            {
+                printf("\n-- Koordinatenfehler! (%li, %li) --\n", x, y);
+                return;
+            }
+
+            // Hier ist Platz um aktuelle Koordinate bzw. Pixel zu untersuchen (Filter!)
+            // ...
+
+            // Vorgehen: Schwarze Pixel bleiben erhalten, alle andersfarbigen werden weiß!
+            if (((pixel.r == 0x00) && (pixel.g == 0x00) && (pixel.b == 0x00)))
+            {
+                pixel.r = (uint8_t)(0x00);
+                pixel.g = (uint8_t)(0x00);
+                pixel.b = (uint8_t)(0x00);
+
+                setRGBbyCoordinate(x, y, &pixel, data); // struct wird "by-Reference" übergeben, das spart Speicherplatz und Rechenleistung!
+            }
+            else
+            {
+                pixel.r = (uint8_t)(0xff);
+                pixel.g = (uint8_t)(0xff);
+                pixel.b = (uint8_t)(0xff);
+
+                setRGBbyCoordinate(x, y, &pixel, data);
+            }
+        }
+
+    BitmapErstellen(data, Schritt1);
+}
+
+uint8_t mengeErosieren(uint32_t x, uint32_t y, const erosion *const bezugspunkt, const uint8_t *const data_array) // Prüft für die angegebene Koordinate, ob die Menge erosiert werden muss
 {
     const uint8_t rows = 3, columns = 3;                 // Zeile & Spalten
     const uint64_t bezugspunkt_x = 2, bezugspunkt_y = 2; // Position des Bezugspunktes im strukturierenden Element (relativ zum Array)
 
-    uint32_t p_arr[rows][columns]; // Array mit Größe stukturierendes Element, das speichert, welcher Pixel geprüft werden soll (falls Element teilweise aus Bild ragt)
+    uint8_t p_arr[rows][columns]; // Array mit Größe stukturierendes Element, das speichert, welcher Pixel geprüft werden soll (falls Element teilweise aus Bild ragt)
 
     // Initialisierung des Arrays mit Standartwert 1
     for (uint64_t i = 0; i < rows; i++)
@@ -124,32 +162,34 @@ uint8_t mengeErosieren(uint32_t x, uint32_t y, const RGBform *const bezugspunkt,
             p_arr[i][j] = 1;
 
     if (bezugspunkt->error == 1)
-        return 0; // Liegt der Bezugspunkt außerhalb der Bildkoordinaten, abbrechen
+        return 1; // Liegt der Bezugspunkt außerhalb der Bildkoordinaten, abbrechen
 
+    // Annahme: Zu verarbeitende Bilder sind so groß, dass nicht gleichzeitig
+    // Kopf und Boden bzw. linke und rechte Seite aus dem Bild ragen können:
     if (x - (rows - bezugspunkt_x) < 0) // linke Seite ragt aus dem Bild
     {
-        p_arr[0][0] = 0;
-        p_arr[1][0] = 0;
-        p_arr[2][0] = 0;
+        p_arr[0][0] = (uint8_t)0x00;
+        p_arr[1][0] = (uint8_t)0x00;
+        p_arr[2][0] = (uint8_t)0x00;
     }
-    if (x + (rows - bezugspunkt_x) > width) // rechte Seite ragt aus dem Bild
+    else if (x + (rows - bezugspunkt_x) > width) // rechte Seite ragt aus dem Bild
     {
-        p_arr[0][2] = 0;
-        p_arr[1][2] = 0;
-        p_arr[2][2] = 0;
+        p_arr[0][2] = (uint8_t)0x00;
+        p_arr[1][2] = (uint8_t)0x00;
+        p_arr[2][2] = (uint8_t)0x00;
     }
 
     if (y - (columns - bezugspunkt_y) < 0) // Kopf ragt aus dem Bild
     {
-        p_arr[0][0] = 0;
-        p_arr[0][1] = 0;
-        p_arr[0][2] = 0;
+        p_arr[0][0] = (uint8_t)0x00;
+        p_arr[0][1] = (uint8_t)0x00;
+        p_arr[0][2] = (uint8_t)0x00;
     }
-    if (y + (columns - bezugspunkt_y) > height) // Boden ragt aus dem Bild
+    else if (y + (columns - bezugspunkt_y) > height) // Boden ragt aus dem Bild
     {
-        p_arr[0][2] = 0;
-        p_arr[1][2] = 0;
-        p_arr[2][2] = 0;
+        p_arr[0][2] = (uint8_t)0x00;
+        p_arr[1][2] = (uint8_t)0x00;
+        p_arr[2][2] = (uint8_t)0x00;
     }
     // Hier: Es wurden alle Pixelfelder ausgeschlossen, die nicht innerhalb des Bildes liegen
 
@@ -193,12 +233,12 @@ void Erosion(const uint8_t *const data, uint8_t *const errosed) // Erosion: Prü
 
 void Subtrahieren(const uint8_t *const pic1, const uint8_t *const pic2, uint8_t *const data_array) // Subtrahierung: Binärisiertes Bild und erosiertes Bild werden voneinander abzgezogen um Kreisumfang der Erde zu erhalten
 {
-    uint8_t calc;
+    int16_t calc;
     for (uint64_t i = 0; i < imageSize; i++)
     {
-        calc = pic1[i] - pic2[i];
+        calc = pic1[i] - pic2[i]; // Intervall ist [-255, 255]
 
-        switch (calc) // Aus Schwarz, weiß machen bzw. umgekehrt
+        switch (abs(calc)) // Aus Schwarz, weiß machen bzw. umgekehrt
         {
         case 0:
             calc = 255;
@@ -218,8 +258,8 @@ void Subtrahieren(const uint8_t *const pic1, const uint8_t *const pic2, uint8_t 
 
 void RechteckZeichnen(uint64_t x, uint64_t y, uint8_t *const data) // Zeichnet ein rotes Rechteck an den mitgeteilten Punkt
 {
-    for (int i = -4; i < 5; i++)
-        for (int j = -4; j < 5; j++)
+    for (int i = -4; i <= 4; i++)
+        for (int j = -4; j <= 4; j++)
             setRGBbyCoordinate(x + i, y + j, &(RGBform){.r = 255, .g = 0, .b = 0}, data);
 }
 
@@ -232,7 +272,7 @@ void NormiertenErdvektorBerechnen(double x, double y, double z) // Berechnet den
     const double x0 = width / 2;
     const double y0 = height / 2;
 
-    const double vektor[3] = {x - x0, -(y - y0), z - 0}; // y-Achse ist gegenläufig (positiv nach unten), deswegen hier Minus davor setzen! 
+    const double vektor[3] = {x - x0, -(y - y0), z - 0}; // y-Achse ist gegenläufig (positiv nach unten), deswegen hier Minus davor setzen!
 
     const double betrag = sqrt(vektor[0] * vektor[0] + vektor[1] * vektor[1] + vektor[2] * vektor[2]);
 
@@ -394,29 +434,31 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
 
 int main(void)
 {
+    // #######################################################################
+    // ########################## DATEIOPERATIONEN ###########################
     // ERDE.BMP ÖFFNEN:
     FILE *file = fopen(Eingabe, "rb");
 
     if (!file) // FEHLER: Datei konnte nicht geöffnet werden
     {
         printf("-- BMP konnte nicht geladen werden! -- \n");
-        return 0;
+        return 1;
     }
 
-    // HIER: Datei wurde erfolgreich gelesen; ALS NÄCHSTES: Header einlesen:
+    // Ab hier: Datei wurde erfolgreich gelesen; ALS NÄCHSTES: Header einlesen:
     if (fread(header, 1, 54, file) != 54) // FEHLER: wenn weniger als 54 Bytes gelesen werden können (kein vollständiger Header, leere Datei), abbrechen
     {
         printf("-- Keine korrekte BMP Datei! (1) -- \n");
-        return 0;
+        return 1;
     }
 
     if ((header[0] != 'B') || (header[1] != 'M')) // Jedes Bitmap-file beginnt mit "BM", dies prüfen! (Magische Zahl)
     {
         printf("-- Keine korrekte BMP Datei! (2) -- \n");
-        return 0;
+        return 1;
     }
 
-    // VERSCHIEDENE WERTE AUS HEADER EINLESEN:
+    // Verschiedene Werte aus BMP-Header einlesen:
     dataPos = *(int *)&(header[0x0A]);   // 10 : 4 Bytes : Position in der Datei, ab der die Pixeldaten anfangen
     imageSize = *(int *)&(header[0x22]); // 34 : 4 Bytes : Größte der Bilddaten in Byte
     width = *(int *)&(header[0x12]);     // 18 : 4 Bytes : Breite des Bildes in Pixel
@@ -432,50 +474,21 @@ int main(void)
     printf("Daten des Eingabebildes:\n\t[ Breite: %lu [px] ]\n\t[ Höhe: %lu [px] ]\n\t[ Bildgröße: %lu [px] ]\n", width, height, imageSize);
 
     // SPEICHERPLATZ RESERVIEREN:
-    data = (uint8_t *)malloc(imageSize * sizeof(uint8_t));    // Original-Farbwerte
-    errdata = (uint8_t *)malloc(imageSize * sizeof(uint8_t)); // erodierte Menge
+    //uint8_t *data;    // Enthält sämtliche Hex-Werte aller Pixel (darf nach einlesen, nicht bearbeitet werden!)
+    //uint8_t *errdata; // Enthält die erodierte Menge die mit dem strukturierenden Element abgeblichen wurde
+
+    uint8_t *const data = (uint8_t *)malloc(imageSize * sizeof(uint8_t));    // Original-Farbwerte
+    uint8_t *const errdata = (uint8_t *)malloc(imageSize * sizeof(uint8_t)); // erodierte Menge
 
     // RGB-PIXEL-DATEN AUS BITMAP LESEN & FILE SCHLIEßEN:
     fread(data, 1, imageSize, file); // !!WICHTIG!!: fread(...) bewegt den File-Pointer! (quasi Cursor) Deswegen wird hier (durch die 1) nicht von Dateianfang, sondern ab Byte 55 gelesen! (Cursor wurde vorher schon verschoben!) Enthält rein die Pixelwerte!!
     fclose(file);
 
-    // Diese beiden For-Schleifen iterieren Spalte für Spalte durch die Pixel des Bitmap:
-    RGBform pixel;                            // Struct speichert jeweils Farbwerte
-    for (uint64_t x = 0; x < width; x++)      // iteriert Zeilenweise
-        for (uint64_t y = 0; y < height; y++) // iteriert Spaltenweise
-        {
-            // Farbwerte des aktuellen Pixels abrufen um Vergleiche durchzuführen
-            pixel = getRGBbyCoordinate(x, y, data);
-
-            if (pixel.error == (uint8_t)(1)) // Wurde ein Fehler ausgelöst, hier abbrechen
-            {
-                printf("\n-- Koordinatenfehler! (%li, %li) --\n", x, y);
-                return 1;
-            }
-
-            // Hier ist Platz um aktuelle Koordinate bzw. Pixel zu untersuchen (Filter!)
-            // ...
-
-            if (((pixel.r == 0x00) && (pixel.g == 0x00) && (pixel.b == 0x00)))
-            {
-                pixel.r = (uint8_t)(0);
-                pixel.g = (uint8_t)(0);
-                pixel.b = (uint8_t)(0);
-
-                setRGBbyCoordinate(x, y, &pixel, data); // struct wird "by-Reference" übergeben, das spart Speicherplatz und Rechenleistung!
-            }
-            else
-            {
-                pixel.r = (uint8_t)(255);
-                pixel.g = (uint8_t)(255);
-                pixel.b = (uint8_t)(255);
-
-                setRGBbyCoordinate(x, y, &pixel, data);
-            }
-        }
+    // #######################################################################
+    // ###################### BILDBEARBEITUNGSSCHRITTE #######################
 
     // ZWISCHENERGEBNIS: binärisiertes Bitmap:
-    BitmapErstellen(data, Schritt1);
+    Bin(data);
 
     // ZWISCHENERGEBNIS: Erosierung:
     Erosion(data, errdata);
@@ -487,9 +500,8 @@ int main(void)
     Kreismitte(data);
 
     // BEREINIGUNG & SPEICHER FREIGEBEN:
-    free(data);
     free(errdata);
-    //free(subdata);
+    free(data);
 
     return 0;
 }
