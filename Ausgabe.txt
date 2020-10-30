@@ -1,0 +1,24 @@
+Daten des Eingabebildes:
+	[ Breite: 1024 [px] ]
+	[ Höhe: 1024 [px] ]
+	[ Bildgröße: 3145728 [px] ]
+
+Bitmap erstellt! - Name: Binärisierung.bmp
+
+Bitmap erstellt! - Name: Erosion.bmp
+
+Bitmap erstellt! - Name: Subtraktion.bmp
+
+Bitmap erstellt! - Name: Kreismittelpunkt.bmp
+
+Kreismitte bei:
+	[ x = 639.345185 ]
+	[ y = 465.891182 ]
+	[ r = 301.484131 ]
+
+Normierter Erdvektor bei:
+	[ x = 0.0745178 ]
+	[ y = 0.0269818 ]
+	[ z = 0.9968558 ]
+(verwendetes Koordinatensystem: Bitmap
+((0, 0) links oben. x-Achse positiv n. rechts, y-Achse positiv n. unten)
