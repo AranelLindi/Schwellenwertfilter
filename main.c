@@ -183,15 +183,15 @@ uint8_t mengeErosieren(uint32_t x, uint32_t y, const erosion *const bezugspunkt,
 
     if (y - (columns - bezugspunkt_y) < 0) // Kopf ragt aus dem Bild
     {
-        p_arr[0][0] = 255;
-        p_arr[1][0] = 255;
-        p_arr[2][0] = 255;
+        p_arr[0][0] = 0;
+        p_arr[1][0] = 0;
+        p_arr[2][0] = 0;
     }
     if (y + (columns - bezugspunkt_y) > height) // Boden ragt aus dem Bild
     {
-        p_arr[0][2] = 255;
-        p_arr[1][2] = 255;
-        p_arr[2][2] = 255;
+        p_arr[0][2] = 0;
+        p_arr[1][2] = 0;
+        p_arr[2][2] = 0;
     }
     // Hier: Es wurden alle Pixelfelder ausgeschlossen, die nicht innerhalb des Bildes liegen
 
