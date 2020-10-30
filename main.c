@@ -1,8 +1,3 @@
-/*
-BMP Dateien: |BITMAPFILEHEADER| - |BITMAPINFOHEADER| - |PIXEL VALUES|
-             |    14 Bytes    |   |    40 Bytes    |   | ...        |
-*/
-
 /// Standardbibliotheken
 #include <math.h>   // Wurzelfunktion
 #include <stdlib.h> // Speicherallokation
@@ -10,14 +5,16 @@ BMP Dateien: |BITMAPFILEHEADER| - |BITMAPINFOHEADER| - |PIXEL VALUES|
 #include <stdint.h> // int-Typen
 
 /// Makros
-#define Eingabe "Erde.bmp"              // Bild mit Erde, das bearbeitet werden soll
+#define Eingabe "Erde.bmp"              // Bild mit Erde, welches bearbeitet werden soll
 #define Schritt1 "Binärisierung.bmp"    // Binärisierung
 #define Schritt2 "Erosion.bmp"          // Erosion
 #define Schritt3 "Subtraktion.bmp"      // Subtraktion
 #define Schritt4 "Kreismittelpunkt.bmp" // Kreismittelpunkt
 
+#define tolerance 1e-6f // f. Kreisannäherungsverfahren
+
 /// Strukturen
-typedef struct rgbform // Wichtig: Farbdaten werden nicht in RGB Reinfolge sondern in BGR in Bitmap gespeichert !!
+typedef struct rgbform // Wichtig: Farbdaten werden nicht in RGB Reihnfolge sondern in BGR in Bitmap gespeichert !!
 {
     uint8_t r;      // rot-Anteil
     uint8_t g;      // grün-Anteil
@@ -32,23 +29,23 @@ struct point // Stellt eine Koordinate innerhalb des Bildes dar
 }; // 8 Bytes
 
 /// Globale Variablen
-int8_t header[54] = {'\0'};     // 14 Bytes (header) + 40 Bytes (info header) = 54 Bytes
+uint8_t header[54] = {'\0'};    // 14 Bytes (header) + 40 Bytes (info header) = 54 Bytes
 uint32_t dataPos = 0;           // Position wo in der Datei die Pixeldaten anfangen
 uint32_t width = 0, height = 0; // Breite/Höhe des Bildes (können wohl auch negativ sein, MÖGLICHE FEHLERQUELLE!) (hat sich bisher aber nicht bewahrheitet)
 uint32_t imageSize = 0;         // Größe des Bildes in Byte
 
 //const RGBform strElement[3][3] = {0, 0, 0}; // 3x3 großes Element, dass als strukturierendes Element dient (siehe Funktion '') (schwarzes Rechteck)
 
-const float d = 0.001808905f; // Durchmesser Sensor: 1.8089 mm
-const float f = 0.005110703f; // Brennweite: 5.110703 mm
-const float r_E = 6.371e3f;   // Erdradius in km
+const float d = 1808905e-9f; // Durchmesser Sensor: 1.8089 mm
+const float f = 5110703e-9f; // Brennweite: 5.110703 mm
+const float r_E = 6.371e3f;  // Erdradius in km
 // Formeln: D/L = d/f => f = d*L/(2*r_E) (siehe Vorlesungsfolie)
 
 /// Funktionen
 RGBform getRGBbyCoordinate(uint32_t x, uint32_t y, const uint8_t *const data_array) // Gibt die Farbwerte in Bezug auf eine Koordinate des Bildes zurück
 {
     // Koordinatensystem beginnt links oben, Richtung: rechts unten
-    RGBform rgb;
+    RGBform rgb; // Struct wird nicht initialisiert -> Variablen besitzen unvorhersehbare Werte! Darauf achten falls es relevant wird!
 
     if ((x > width) || (y > height)) // prüfen ob übergebene Koordinaten im Rahmen liegen
     {
@@ -64,7 +61,7 @@ RGBform getRGBbyCoordinate(uint32_t x, uint32_t y, const uint8_t *const data_arr
     // * 3 : Ein Pixel, drei Farbwerte (RGB)
     const uint32_t pixel = (x + (y * width)) * 3; // x-Koordinate einfach addieren, Zeilensprünge (y-Koordianten) mit Anzahl Pixel pro "Zeile" multiplizieren. Ergebnis *3 (rgb)
 
-    // Hex-Werte von rgb zuweisen (insgesamt drei Array-Felder) (Achtung! Reinfolge ist umgekehrt: RGB -> BGR !)
+    // Hex-Werte von rgb zuweisen (insgesamt drei Array-Felder) (Achtung! Reihnfolge ist umgekehrt: RGB -> BGR !)
     rgb.r = data_array[pixel + 2];
     rgb.g = data_array[pixel + 1];
     rgb.b = data_array[pixel];
@@ -84,7 +81,7 @@ void setRGBbyCoordinate(uint32_t x, uint32_t y, RGBform *const rgb, uint8_t *con
 
     const uint32_t pixel = ((x) + ((y)*width)) * 3;
 
-    // Achtung! Reinfolge in Bitmap ist nicht RGB sondern BGR !!
+    // Achtung! Reihnfolge in Bitmap ist nicht RGB sondern BGR !!
     data_array[pixel + 2] = rgb->r;
     data_array[pixel + 1] = rgb->g;
     data_array[pixel] = rgb->b;
@@ -293,13 +290,13 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
     RGBform Koordinate;          // Schablone zum Farbvergleich einer Koordinate
     const uint8_t ANZAHL = 7;    // Anzahl zu speichernder Koordinaten für Methode kleinster Quadrate (MUSS größer 0 sein!)
     uint32_t counter = 0;        // Counter für Anzahl aufgenommener Koordinatentupel
-    struct point points[ANZAHL]; // Array, dass Koordinaten enthält
+    struct point points[ANZAHL]; // Array, das Koordinaten enthält mit denen Interpolation gemacht wird
 
     // Koordinatentupel mit 0 initialisieren (nicht initialisierte Variablen haben undefinierten Wert!)
     for (uint8_t i = 0; i < ANZAHL; i++)
         points[i] = (struct point){.x = 0, .y = 0};
 
-    // Exemplarisch 7 Koordinaten aus Kreis aufnehmen und daraus den Mittelpunkt berechnen
+    // Exemplarisch 7 Koordinaten aus Kreis aufnehmen und daraus den Mittelpunkt berechnen:
     for (uint32_t i = 1; i < width; i += 10)
     {
         for (uint32_t j = 1; j < height; j += 10)
@@ -322,13 +319,11 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
 
     if (counter < ANZAHL)
     {
-        printf("Es wurden nicht genügend Koordinatentupel gefunden um Interpoleration vorzunehmen!");
+        printf("Es wurden nicht genügend Koordinatentupel gefunden um Kreisannäherung vorzunehmen!");
         return;
     }
 
-    /* ENTKOMMENTIEREN FALLS KOORDINATENTUPELN FÜR GAUSS-NEWTON-VERFAHREN AUSGEGEBEN WERDEN SOLLEN
-    //
-    // Aus allen Koordinaten 7 rausnehmen, die über den Umfang verteilt sind:
+    /* // ENTKOMMENTIEREN FALLS KOORDINATENTUPELN FÜR GAUSS-NEWTON-VERFAHREN AUSGEGEBEN WERDEN SOLLEN
     for (uint8_t i = 0; i < ANZAHL; i++)
         printf("%u : (%i, %i)\n", i, points[i].x, points[i].y);
     */
@@ -341,8 +336,6 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
     //   f(x) :=   r^2 = (x - m_1)^2 + (y - m_2)^2
     // soll damit gelöst werden, bei der m_1 und m_2 die Koordinaten des Kreismittelpunkts
     // darstellen.
-    const float tolerance = 1e-6f;
-
     double a, b, r; // Variablen für Gauss-Newton-Verfahren (a = m_1, b = m_2, r = r) == Koordinaten des Kreismittelpunkts
 
     // Durchschnitt der Koordinatentupel berechnen
@@ -384,7 +377,7 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
         double DaAvr = 0.0; // Distanz von a
         double DbAvr = 0.0; // Distanz von b
 
-        for (size_t i = 0; i < ANZAHL; i++)
+        for (size_t i = 0; i < ANZAHL; i++) // zweispaltig durch Jacobi-Matrix iterieren und Feldwerte ausrechnen
         {
             const double dx = points[i].x - a;
             const double dy = points[i].y - b;
@@ -438,8 +431,14 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
 
 int main(void)
 {
+    /*
+    BMP Dateien: |BITMAPFILEHEADER| - |BITMAPINFOHEADER| - |PIXEL VALUES| => Wichtig: Nicht unbedingt in RGB Reihnfolge, sondern hier in BGR !
+                 |    14 Bytes    |   |    40 Bytes    |   | ...        |
+    */
+
     // #######################################################################
     // ########################## DATEIOPERATIONEN ###########################
+
     // ERDE.BMP ÖFFNEN:
     FILE *file = fopen(Eingabe, "rb");
 
