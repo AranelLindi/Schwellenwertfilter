@@ -282,7 +282,7 @@ void NormiertenErdvektorBerechnen(double x, double y, double z) // Berechnet den
     }
 
     // Vektor ausgeben und normieren:
-    printf("\nNormierter Erdvektor bei:\n\t[ x = %f8 ]\n\t[ y = %f8 ]\n\t[ z = %f8 ]\n(verwendetes Koordinatensystem: Bitmap\n((0, 0) links oben. x-Achse positiv n. rechts, y-Achse positiv n. unten)\n", vektor[0] / betrag, vektor[1] / betrag, vektor[2] / betrag);
+    printf("\nNormierter Erdvektor bei:\n\t[ x = %f8 ]\n\t[ y = %f8 ]\n\t[ z = %f8 ]\nzugrundeliegendes Koordinatensystem:\tBitmap\n(verschobener Ursprung (Bildmitte):\t(%i, %i)\nx-Achse positiv n. rechts, y-Achse positiv n. unten)\n", vektor[0] / betrag, vektor[1] / betrag, vektor[2] / betrag, (unsigned int)x0, (unsigned int)y0);
 }
 
 void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kleinsten Quadrate bestimmen
@@ -406,7 +406,7 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
         if (fabs(a - a0) <= tolerance && fabs(b - b0) <= tolerance)
             break;
     }
-
+    
     // Kreismittelpunkt markieren:
     RechteckZeichnen(a /* a = m_1 */, b /* b = m_2 */, data_array);
 
@@ -414,7 +414,7 @@ void Kreismitte(uint8_t *const data_array) // Kreismitte mit der Methode der kle
     BitmapErstellen(data_array, Schritt4);
 
     // Koordinaten Kreismittelpunkt inkl. Radius auf Konsole ausgeben:
-    printf("\nKreismitte bei:\n\t[ x = %f ]\n\t[ y = %f ]\n\t[ r = %f ]\n", a, b, r);
+    printf("\nKreismitte bei:\n\t[ x = %f px ]\n\t[ y = %f px ]\n\t[ r = %f px ]\n", a, height-b /* y-Achse verläuft gegenläufig! (positiv nach unten!) Daher zur Ausgabe umrechnen! */, r);
 
     // Erdvektor berechnen und ausgeben:
 
@@ -435,6 +435,8 @@ int main(void)
     BMP Dateien: |BITMAPFILEHEADER| - |BITMAPINFOHEADER| - |PIXEL VALUES| => Wichtig: Nicht unbedingt in RGB Reihnfolge, sondern hier in BGR !
                  |    14 Bytes    |   |    40 Bytes    |   | ...        |
     */
+
+    printf("\n#####################################\n  SCHWELLENWERTFILTER (GRFM, WS20/21)\n#####################################\n\n");
 
     // #######################################################################
     // ########################## DATEIOPERATIONEN ###########################
@@ -474,7 +476,7 @@ int main(void)
         dataPos = 54; // Standardmäßig ist ein BMP Header 54 Bytes lang (BITMAPFILEHEADER & BITMAPINFOHEADER)
 
     // Ausgabe der Grundlegenden Bildinformationen:
-    printf("Daten des Eingabebildes:\n\t[ Breite: %i [px] ]\n\t[ Höhe: %i [px] ]\n\t[ Bildgröße: %i [px] ]\n", width, height, imageSize);
+    printf("Daten des Eingabebildes:\n\t Breite:\t%i px\n\t Höhe:\t%i px\n\t Bildgröße:\t%i px\n", width, height, imageSize);
 
     // SPEICHERPLATZ RESERVIEREN:
     //uint8_t *data;    // Enthält sämtliche Hex-Werte aller Pixel (darf nach einlesen, nicht bearbeitet werden!)
